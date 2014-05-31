@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 import os
 import re
+import socket
 import pandas.io.data
 import numpy as np
 from datetime import date, datetime
@@ -35,7 +36,9 @@ def dl(symbol, db_directory):
         "Not Found" = Symbol not found
     """
     filename = os.path.join(db_directory, symbol + ".csv")
+    # logging.debug("Filename: {}".format(filename))
     if not os.path.isfile(filename):
+        # logging.debug("{} not found...".format(filename))
         start_date = date(year=1900, month=1, day=1)
         end_date = date(year=2019, month=12, day=31)
         while True:
@@ -44,7 +47,7 @@ def dl(symbol, db_directory):
                 break
             except urllib.error.HTTPError as err:
                 if err.msg == "Server Hangup":
-                    logging.debug("Connection lost while downloading historical data for {}, retrying in 5 seconds..."
+                    logging.debug("Server hanged up while downloading historical data for {}, retrying in 5 seconds..."
                                   .format(symbol))
                     sleep(5)
                     continue
@@ -52,9 +55,11 @@ def dl(symbol, db_directory):
                     return err.msg
                 else:
                     raise
-            # with open(filename, 'w') as csvfile:
-            #     csvfile.write(downloaded)
-            #     break
+            except socket.timeout:
+                logging.debug("Connection timed out while downloading historical data for {}, retrying in 5 seconds..."
+                              .format(symbol))
+                sleep(5)
+                continue
     else:
         return "Up-to-date"
 
@@ -70,6 +75,14 @@ def dl(symbol, db_directory):
                 continue
             else:
                 raise
+        except socket.timeout:
+                logging.debug("Connection timed out while downloading mainpage for {}, retrying in 5 seconds..."
+                              .format(symbol))
+                sleep(5)
+                continue
+
+    if not misc_info["currency"]:
+        return "Not Found"
 
     lines = hist_data.splitlines()
     lines[0] += " ({})".format(misc_info["currency"])
@@ -118,11 +131,13 @@ def dl_mainpage(symbol):
 
     urltodl = "http://finance.yahoo.com/q?s={}".format(symbol)
     logging.debug("Downloading data from: {}".format(urltodl))
-    req = urllib.request.urlopen(urltodl, timeout=10)
+    req = urllib.request.urlopen(urltodl)
     data = req.read()
     datastr = data.decode()
     m = re.search("Currency in ...[.]", datastr)
-    currency = m.string[m.end()-4:m.end()-1].upper()
+    currency = None
+    if m:
+        currency = m.string[m.end()-4:m.end()-1].upper()
 
     results = {"currency": currency}
     return results
@@ -157,7 +172,7 @@ def convert_to_usd(files):
             logging.error("{} doesn't have currency specification.".format(filename))
             continue
 
-        logging.debug("Converting {}...".format(filename))
+        logging.debug("Converting to USD: {}...".format(filename))
 
         if currency not in fxrates:
             fredsymbol = fred_currencies[currency]
@@ -186,3 +201,5 @@ def convert_to_usd(files):
         with open(filename, 'w') as csvfile:
             for line in lines:
                 csvfile.write(line + "\n")
+
+        logging.debug("Converted to USD {}.".format(filename))
