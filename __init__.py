@@ -5,6 +5,7 @@ import urllib.request
 import os
 import re
 import socket
+import tables
 import pandas.io.data
 import numpy as np
 from datetime import date, datetime
@@ -27,7 +28,61 @@ fred_currencies = {
 }
 
 
-def dl(symbol, db_directory):
+def dl(symbol, timeout=600):
+    """
+    Downloads yahoo data.
+    """
+    start_date = date(year=1900, month=1, day=1)
+    end_date = date(year=2019, month=12, day=31)
+    while True:
+        try:
+            hist_data = dl_raw(symbol, start_date, end_date, 'd', 'csv', timeout)
+            break
+        except urllib.error.HTTPError as err:
+            if err.msg == "Server Hangup":
+                logging.debug("Server hanged up while downloading historical data for {}, retrying in 5 seconds..."
+                              .format(symbol))
+                sleep(5)
+                continue
+            if err.msg == "Not Found":
+                return None
+            else:
+                raise
+        except (socket.timeout, urllib.error.URLError, ConnectionResetError):
+            logging.debug("Connection timed out while downloading historical data for {}, retrying in 5 seconds..."
+                          .format(symbol))
+            sleep(5)
+            continue
+
+    while True:
+        try:
+            misc_info = dl_mainpage(symbol, timeout)
+            break
+        except urllib.error.HTTPError as err:
+            if err.msg == "Internal Server Error" or err.msg == "Server Hangup":
+                logging.debug("{} while downloading mainpage for symbol {}, retrying in 5 seconds..."
+                              .format(err.msg, symbol))
+                sleep(5)
+                continue
+            else:
+                raise
+        except (socket.timeout, urllib.error.URLError, ConnectionResetError):
+            logging.debug("Connection timed out while downloading historical data for {}, retrying in 5 seconds..."
+                          .format(symbol))
+            sleep(5)
+            continue
+
+    if not misc_info["currency"]:
+        return "Not Found"
+
+    lines = hist_data.splitlines()
+    lines[0] = lines[0].replace(" ", "")
+    lines[0] += "({})".format(misc_info["currency"])
+
+    return "\n".join(lines)
+
+
+def dl_csvbased(symbol, dl_directory):
     """
     Downloads yahoo data.
     return values:
@@ -35,7 +90,7 @@ def dl(symbol, db_directory):
         "Up-to-date" = File was up-to-date
         "Not Found" = Symbol not found
     """
-    filename = os.path.join(db_directory, symbol + ".csv")
+    filename = os.path.join(dl_directory, symbol + ".csv")
     # logging.debug("Filename: {}".format(filename))
     if not os.path.isfile(filename):
         # logging.debug("{} not found...".format(filename))
@@ -85,7 +140,8 @@ def dl(symbol, db_directory):
         return "Not Found"
 
     lines = hist_data.splitlines()
-    lines[0] += " ({})".format(misc_info["currency"])
+    lines[0] = lines[0].replace(" ", "")
+    lines[0] += "({})".format(misc_info["currency"])
 
     with open(filename, 'w') as csvfile:
         for line in lines:
@@ -94,7 +150,8 @@ def dl(symbol, db_directory):
     return "Downloaded"
 
 
-def dl_raw(symbol, startdate, enddate, datatype, fmt):
+
+def dl_raw(symbol, startdate, enddate, datatype, fmt, timeout):
 
     sd = startdate
     ed = enddate
@@ -115,14 +172,14 @@ def dl_raw(symbol, startdate, enddate, datatype, fmt):
 
     logging.debug("Downloading historical Yahoo data from: {}".format(urltodl))
 
-    req = urllib.request.urlopen(urltodl)
+    req = urllib.request.urlopen(urltodl, timeout=timeout)
     data = req.read()
     datastr = data.decode()
 
     return datastr
 
 
-def dl_mainpage(symbol):
+def dl_mainpage(symbol, timeout):
     """
     Downloads data from the main Yahoo Finance page.
     Throws exceptions:
@@ -131,7 +188,7 @@ def dl_mainpage(symbol):
 
     urltodl = "http://finance.yahoo.com/q?s={}".format(symbol)
     logging.debug("Downloading data from: {}".format(urltodl))
-    req = urllib.request.urlopen(urltodl)
+    req = urllib.request.urlopen(urltodl, timeout=timeout)
     data = req.read()
     datastr = data.decode()
     m = re.search("Currency in ...[.]", datastr)
@@ -144,8 +201,16 @@ def dl_mainpage(symbol):
 
 
 def convert_to_usd(files):
+    """
+    Converts OHLCVC files to USD (currency needs to be defined in header)
+    Returns:
+        Number of files converted
+    """
+
     start = datetime(1900, 1, 1)
     end = datetime(2020, 1, 1)
+
+    num_converted = 0
 
     # converted to XXX/USD
     fxrates = {}
@@ -185,7 +250,7 @@ def convert_to_usd(files):
             data = data[np.isfinite(data[fredsymbol])]
             fxrates[currency] = data
 
-        lines[0] += ",Adj Close (USD)"
+        lines[0] += ",AdjClose(USD)"
         fxrate = fxrates[currency]
 
         for i in range(len(lines)-1, 0, -1):
@@ -202,4 +267,7 @@ def convert_to_usd(files):
             for line in lines:
                 csvfile.write(line + "\n")
 
+        num_converted += 1
         logging.debug("Converted to USD {}.".format(filename))
+
+    return num_converted
