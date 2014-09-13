@@ -1,4 +1,5 @@
 import logging
+import http.client
 import urllib
 import urllib.error
 import urllib.request
@@ -92,8 +93,9 @@ def dl(symbol, timeout=600):
                 return None
             else:
                 raise
-        except (socket.timeout, urllib.error.URLError, ConnectionResetError):
-            logging.debug("Connection timed out while downloading historical data for" +
+        except (socket.timeout, urllib.error.URLError, ConnectionResetError,
+                http.client.IncompleteRead):
+            logging.debug("Connection problem while downloading historical data for" +
                           " {}, retrying in 5 seconds...".format(symbol))
             sleep(5)
             continue
