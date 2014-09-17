@@ -10,22 +10,40 @@ import numpy as np
 from datetime import date, datetime
 from time import sleep
 
-"""Lookup table for FRED symbols"""
+
+"""Lookup table for FRED symbols.
+
+Fred is missing some currencies that appear in Yahoo Finance:
+    ILS = Israeli New Sheqel
+    RUB = Russian Ruble
+    IDR = Indonesian Rupiah
+    ARS = Argentine Peso
+"""
 fred_currencies = {
-    "JPY": "DEXJPUS",
+    # USD/XYZ
     "EUR": "DEXUSEU",
-    "MXN": "DEXMXUS",
     "GBP": "DEXUSUK",
     "CAD": "DEXCAUS",
     "AUD": "DEXUSAL",
+    "NZD": "DEXUSNZ",
+    # XYZ/USD
     "CHF": "DEXSZUS",
+    "JPY": "DEXJPUS",
+    "MXN": "DEXMXUS",
     "HKD": "DEXHKUS",
     "ZAR": "DEXSFUS",
     "SEK": "DEXSDUS",
     "SGD": "DEXSIUS",
     "NOK": "DEXNOUS",
-    "DKK": "DEXDNUS"
+    "DKK": "DEXDNUS",
+    "BRL": "DEXBZUS",
+    "CNY": "DEXCHUS",
+    "INR": "DEXINUS",
+    "KRW": "DEXKOUS",
+    "MYR": "DEXMAUS",
+    "TWD": "DEXTAUS"
 }
+
 
 """Lookup table for Yahoo stats symbols"""
 yahoo_stats = {
@@ -33,6 +51,8 @@ yahoo_stats = {
     "price": "l1",
     "change": "c1",
     "change_pct": "p2",
+    "bid": "b3",
+    "ask": "b2",
     "after_hours_change": "c8",
     "volume": "v",
     "avg_daily_volume": "a2",
@@ -210,8 +230,7 @@ def dl_raw(symbol, startdate, enddate, datatype, fmt, timeout):
     elif fmt == "x":
         urltodl = "http://ichart.finance.yahoo.com/x?"
     else:
-        print("format ({}) not supported.".format(fmt))
-        return
+        raise Exception("format ({}) not supported.".format(fmt))
     urltodl += "s={symbol}".format(symbol=symbol)
     urltodl += "&a={startm}".format(startm=str(sd.month - 1).rjust(2, "0"))
     urltodl += "&b={startd}&c={starty}".format(startd=str(sd.day).rjust(2, "0"), starty=sd.year)
@@ -224,7 +243,7 @@ def dl_raw(symbol, startdate, enddate, datatype, fmt, timeout):
     return datastr
 
 
-def dl_mainpage(symbol, timeout):
+def dl_mainpage(symbol, timeout=60):
     """
     Download data from the main Yahoo Finance page. Return dict of fetched data.
 
